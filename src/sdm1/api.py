@@ -209,15 +209,18 @@ def _coerce(value: str | None) -> Any:
 
 def health_report() -> dict[str, dict[str, Any]]:
     """Per-backend availability snapshot for `sdm1 doctor`."""
-    from .providers.nvidia_sdm import probe_detail
-
     report: dict[str, dict[str, Any]] = {}
     for pid in sorted(REGISTRY):
         provider = REGISTRY[pid]
         configured = provider.is_configured() if provider.is_configured else None
         if configured is False:
-            available, reason = False, "not configured — set SDM1_MODELS_PYTHON (or SDM1_MODELS_VENV)"
+            hint = provider.meta.get("config_hint") or "see the provider's configuration docs"
+            available, reason = False, f"not configured — {hint}"
+        elif provider.probe is not None:
+            available, reason = provider.probe()
         else:
+            from .providers.nvidia_sdm import probe_detail
+
             available, reason = probe_detail()
         report[pid] = {
             "name": provider.name,

@@ -1,0 +1,391 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "sdm1 \u2014 structured-data model abstraction",
+    "subtitle": "One Python API, one result shape over tabular foundation models \u2014 hosted and local backends",
+    "output": "system.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "git@github.com:adelvillar1/sdm1.git",
+      "revision": "037cd6f020fd2cc806b8dbfdc6de48f541072248",
+      "link_mode": "local-only"
+    }
+  },
+  "components": [
+    {
+      "id": "consumer",
+      "type": "external",
+      "label": "Consumers",
+      "sublabel": "dev-decisions \u00b7 scripts",
+      "pos": [
+        40,
+        210
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "api.py",
+      "sublabel": "classify() composition",
+      "sources": [
+        {
+          "path": "src/sdm1/api.py",
+          "line": 26,
+          "label": "classify()"
+        }
+      ],
+      "pos": [
+        330,
+        210
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "registry",
+      "type": "backend",
+      "label": "registry.py",
+      "sublabel": "register / get / all_ids",
+      "sources": [
+        {
+          "path": "src/sdm1/registry.py",
+          "line": 16,
+          "label": "registry"
+        }
+      ],
+      "pos": [
+        560,
+        210
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "tabpfn",
+      "type": "cloud",
+      "label": "tabpfn-hosted",
+      "sublabel": "stdlib urllib \u00b7 Bearer key",
+      "tag": "TABPFN_API_KEY",
+      "sources": [
+        {
+          "path": "src/sdm1/providers/tabpfn_hosted.py",
+          "line": 1,
+          "label": "hosted provider"
+        }
+      ],
+      "pos": [
+        790,
+        80
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "nvidia",
+      "type": "backend",
+      "label": "nvidia-sdm",
+      "sublabel": "subprocess worker",
+      "sources": [
+        {
+          "path": "src/sdm1/providers/nvidia_sdm.py",
+          "line": 125,
+          "label": "run()"
+        }
+      ],
+      "pos": [
+        790,
+        340
+      ],
+      "size": [
+        160,
+        68
+      ]
+    },
+    {
+      "id": "plabs",
+      "type": "cloud",
+      "label": "Prior Labs API",
+      "sublabel": "TabPFN-3.5 \u00b7 REST",
+      "pos": [
+        1050,
+        80
+      ],
+      "size": [
+        150,
+        68
+      ]
+    },
+    {
+      "id": "gcs",
+      "type": "database",
+      "label": "Signed uploads",
+      "sublabel": "x/y CSV bodies",
+      "pos": [
+        1290,
+        80
+      ],
+      "size": [
+        140,
+        68
+      ]
+    },
+    {
+      "id": "worker",
+      "type": "backend",
+      "label": "worker_sdm.py",
+      "sublabel": "pandas \u00b7 sdm \u00b7 torch",
+      "sources": [
+        {
+          "path": "src/sdm1/providers/worker_sdm.py",
+          "line": 1,
+          "label": "venv worker"
+        }
+      ],
+      "pos": [
+        1050,
+        340
+      ],
+      "size": [
+        150,
+        68
+      ]
+    },
+    {
+      "id": "kumo",
+      "type": "database",
+      "label": "Kumo-Tabular weights",
+      "sublabel": "OpenMDW-1.1",
+      "pos": [
+        1050,
+        480
+      ],
+      "size": [
+        150,
+        60
+      ]
+    },
+    {
+      "id": "parsers",
+      "type": "backend",
+      "label": "parsers.py",
+      "sublabel": "predict payloads \u2192 Prediction",
+      "sources": [
+        {
+          "path": "src/sdm1/parsers.py",
+          "line": 118,
+          "label": "parse_predict_response"
+        }
+      ],
+      "pos": [
+        1300,
+        210
+      ],
+      "size": [
+        160,
+        64
+      ]
+    },
+    {
+      "id": "interpret",
+      "type": "backend",
+      "label": "interpret.py",
+      "sublabel": "per-backend floors \u00b7 verdict",
+      "sources": [
+        {
+          "path": "src/sdm1/interpret.py",
+          "line": 40,
+          "label": "floors"
+        }
+      ],
+      "pos": [
+        1560,
+        210
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "jsonl",
+      "type": "database",
+      "label": "events.jsonl",
+      "sublabel": "telemetry.py \u00b7 calibration",
+      "sources": [
+        {
+          "path": "src/sdm1/telemetry.py",
+          "line": 38,
+          "label": "log_record"
+        }
+      ],
+      "pos": [
+        1560,
+        360
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "sdm1 core \u2014 stdlib only",
+      "wraps": [
+        "api",
+        "registry",
+        "tabpfn",
+        "nvidia",
+        "parsers",
+        "interpret",
+        "jsonl"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Prior Labs hosted API \u2014 metered",
+      "wraps": [
+        "plabs",
+        "gcs"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "[models] venv \u2014 CUDA",
+      "wraps": [
+        "worker",
+        "kumo"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "consumer-to-api",
+      "from": "consumer",
+      "to": "api",
+      "label": "classify()",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-registry",
+      "from": "api",
+      "to": "registry",
+      "label": "resolve"
+    },
+    {
+      "id": "registry-to-tabpfn",
+      "from": "registry",
+      "to": "tabpfn",
+      "label": "run()"
+    },
+    {
+      "id": "registry-to-nvidia",
+      "from": "registry",
+      "to": "nvidia",
+      "label": "run()"
+    },
+    {
+      "id": "tabpfn-to-plabs",
+      "from": "tabpfn",
+      "to": "plabs",
+      "label": "REST flow"
+    },
+    {
+      "id": "plabs-to-gcs",
+      "from": "plabs",
+      "to": "gcs",
+      "label": "signed PUT",
+      "variant": "dashed"
+    },
+    {
+      "id": "tabpfn-to-parsers",
+      "from": "tabpfn",
+      "to": "parsers",
+      "label": "predict payload",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "nvidia-to-worker",
+      "from": "nvidia",
+      "to": "worker",
+      "label": "stdin JSON"
+    },
+    {
+      "id": "worker-to-kumo",
+      "from": "worker",
+      "to": "kumo",
+      "label": "loads",
+      "variant": "dashed"
+    },
+    {
+      "id": "worker-to-parsers",
+      "from": "worker",
+      "to": "parsers",
+      "label": "envelope",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "gcs-to-parsers",
+      "from": "gcs",
+      "to": "parsers",
+      "label": "classes + metadata",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "parsers-to-interpret",
+      "from": "parsers",
+      "to": "interpret",
+      "label": "Predictions"
+    },
+    {
+      "id": "interpret-to-jsonl",
+      "from": "interpret",
+      "to": "jsonl",
+      "label": "log_record",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Two backend patterns",
+      "items": [
+        "tabpfn-hosted: plain HTTPS, no local stack \u2014 classification, regression, forecast, anomaly",
+        "nvidia-sdm: KumoTabular in-context inside a CUDA venv; the core never imports torch"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "One contract",
+      "items": [
+        "TableResult is the public wire shape \u2014 19 frozen top-level keys, additive-only growth",
+        "task_type enum grew additively: classification \u00b7 regression \u00b7 forecast \u00b7 anomaly"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Hard rules",
+      "items": [
+        "Dataset cells ride only in signed-upload bodies; telemetry keeps shapes and hashes",
+        "Fail-open: backend failures return verdict=error, never raise out",
+        "Confidence floors are per backend \u2014 hosted, in-context, and coverage never share a number"
+      ]
+    }
+  ]
+}
