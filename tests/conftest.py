@@ -1,6 +1,8 @@
 """Shared fixtures: env isolation, stub worker/models-python, registry snapshot."""
 
+import io
 import json
+import urllib.error
 
 import pytest
 
@@ -71,15 +73,25 @@ STUB_PYTHON_NO_CUDA = (
 
 @pytest.fixture(autouse=True)
 def _env_isolation(tmp_path, monkeypatch):
-    """Every test gets an isolated log dir and no models-stack env vars."""
+    """Every test gets an isolated log dir and no backend-stack env vars."""
     monkeypatch.setenv("SDM1_LOG_DIR", str(tmp_path / "logs"))
-    for var in ("SDM1_MODELS_PYTHON", "SDM1_MODELS_VENV", "SDM1_WORKER_SCRIPT", "SDM1_TIMEOUT"):
+    for var in (
+        "SDM1_MODELS_PYTHON",
+        "SDM1_MODELS_VENV",
+        "SDM1_WORKER_SCRIPT",
+        "SDM1_TIMEOUT",
+        "TABPFN_API_KEY",
+        "SDM1_TABPFN_BASE",
+        "SDM1_TABPFN_TIMEOUT",
+    ):
         monkeypatch.delenv(var, raising=False)
-    from sdm1.providers import nvidia_sdm
+    from sdm1.providers import nvidia_sdm, tabpfn_hosted
 
     nvidia_sdm.reset_probe_cache()
+    tabpfn_hosted.reset_probe_cache()
     yield
     nvidia_sdm.reset_probe_cache()
+    tabpfn_hosted.reset_probe_cache()
 
 
 @pytest.fixture
@@ -149,6 +161,87 @@ def fake_provider(clean_registry):
         description="test double",
     )
     clean_registry.register(provider)
+    return holder
+
+
+# ── tabpfn-hosted stubs ───────────────────────────────────────────────────────
+
+
+class FakeHTTPError(urllib.error.HTTPError):
+    """HTTPError that carries a reset header for quota tests."""
+
+    def __init__(self, code, body=b"{}", headers=None):
+        super().__init__("https://stub", code, "err", headers or {}, io.BytesIO(body))
+
+
+def _tabpfn_predict_payload(task_type="classification"):
+    if task_type == "classification":
+        return {
+            "prediction": [[0.9, 0.1], [0.4, 0.6]],
+            "metadata": {
+                "billing_model_version": "v3.5",
+                "execution_mode": "standard",
+                "cache_outcome": "not_requested",
+                "n_estimators": 8,
+                "classes": ["yes", "no"],
+            },
+        }
+    quantiles = [[41.0, 42.0, 99.0], [42.0, 43.0, 100.0], [43.0, 44.0, 101.0],
+                 [44.0, 45.0, 102.0], [45.0, 46.0, 103.0], [46.0, 47.0, 104.0],
+                 [47.0, 48.0, 105.0], [48.0, 49.0, 106.0], [49.0, 50.0, 107.0]]
+    prediction = quantiles  # levels x rows
+    return {
+        "prediction": prediction,
+        "metadata": {"billing_model_version": "v3.5", "execution_mode": "standard",
+                     "cache_outcome": "not_requested", "n_estimators": 8},
+    }
+
+
+@pytest.fixture
+def stub_tabpfn(monkeypatch):
+    """Script the hosted wire: env key set, HTTP calls recorded, canned responses.
+
+    Returns a holder dict: calls (path, payload) list, put_bodies list, and
+    settable `predict_payload` / `http_error` (code, reset) for failure tests.
+    """
+    import sdm1.providers.tabpfn_hosted as th
+
+    monkeypatch.setenv("TABPFN_API_KEY", "tabpfn_sk_test_value")
+    holder: dict = {"calls": [], "put_bodies": [], "predict_payload": None,
+                    "http_error": None, "limits_payload": {"default_model_version": "v3.5",
+                                                            "max_model_limit": {"max_classes": 160}}}
+
+    def fake_authed(path, payload, timeout):
+        holder["calls"].append((path, payload))
+        if holder["http_error"] is not None:
+            code, reset = holder["http_error"]
+            headers = {"x-ratelimit-reset": reset} if reset else {}
+            raise FakeHTTPError(code, headers=headers)
+        if path.endswith("get_model_limits"):
+            return holder["limits_payload"]
+        if path.endswith("prepare_train_set_upload"):
+            return {
+                "train_set_upload_id": "tsu-1",
+                "x_train_info": {"signed_urls": ["https://stub/x"], "required_headers": {"a": "b"}},
+                "y_train_info": {"signed_urls": ["https://stub/y"], "required_headers": {"a": "b"}},
+            }
+        if path.endswith("fit"):
+            return {"fitted_train_set_id": "fts-1"}
+        if path.endswith("prepare_test_set_upload"):
+            return {
+                "test_set_upload_id": "tsu-2",
+                "x_test_info": {"signed_urls": ["https://stub/xt"], "required_headers": {"a": "b"}},
+            }
+        if path.endswith("predict"):
+            return holder["predict_payload"] or _tabpfn_predict_payload()
+        raise AssertionError(f"unexpected path {path}")
+
+    def fake_put(url, body, required_headers, timeout):
+        holder["put_bodies"].append((url, body))
+
+    monkeypatch.setattr(th, "_authed_json", fake_authed)
+    monkeypatch.setattr(th, "_put_signed", fake_put)
+    th.reset_probe_cache()
     return holder
 
 

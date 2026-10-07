@@ -25,7 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     c = sub.add_parser("classify", help="Score a CSV's unlabeled rows using its labeled rows as context.")
     c.add_argument("--input", "-i", required=True, help="path to a CSV file")
     c.add_argument("--target", "-t", required=True, help="column to predict (null on query rows)")
-    c.add_argument("--task-type", choices=["classification", "regression"], default="classification")
+    c.add_argument("--task-type", choices=["classification", "regression", "forecast", "anomaly"], default="classification")
     c.add_argument("--model", "-m", default="nvidia-sdm", help="backend id from the registry")
     c.add_argument("--num-estimators", type=int, default=8)
     c.add_argument("--floor", type=float, default=None, help="request-level confidence floor override")

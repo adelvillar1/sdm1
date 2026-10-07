@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-TaskType = Literal["classification", "regression"]
+TaskType = Literal["classification", "regression", "forecast", "anomaly"]
 Verdict = Literal["pass", "escalate", "block", "error"]
 
 
@@ -57,8 +57,11 @@ class TableTask:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if self.task_type not in ("classification", "regression"):
-            raise ValueError(f"task_type must be 'classification' or 'regression', got {self.task_type!r}")
+        if self.task_type not in ("classification", "regression", "forecast", "anomaly"):
+            raise ValueError(
+                "task_type must be 'classification', 'regression', 'forecast' or 'anomaly', "
+                f"got {self.task_type!r}"
+            )
         if not self.target:
             raise ValueError("target is required")
         if self.num_estimators < 1:
@@ -85,12 +88,19 @@ class Prediction:
     class → probability, `confidence` is the ensemble mean max-probability.
     Regression: `label` is the predicted value, both probability fields are
     None (never floor-gated — see interpret.py).
+    Forecast: `label` is the point estimate (median), `extras["quantiles"]`
+    maps level strings ("0.1".."0.9") to values.
+    Anomaly: `label` is "normal"/"anomaly" by band membership and
+    `confidence` is distribution coverage — the fraction of the predictive
+    distribution consistent with the observed value (1.0 = central band
+    already contains it; 0.0 = outside every predicted band).
     """
 
     row_index: int
     label: str | float | None
     probabilities: dict[str, float] | None = None
     confidence: float | None = None
+    extras: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +108,7 @@ class Prediction:
             "label": self.label,
             "probabilities": dict(self.probabilities) if self.probabilities else None,
             "confidence": self.confidence,
+            "extras": dict(self.extras) if self.extras else None,
         }
 
 
@@ -117,8 +128,10 @@ class Provider:
     `run(rows_context, rows_query, task, telemetry) -> list[Prediction]` must
     return predictions already normalized to the Prediction wire shape.
     `is_configured` is the cheap check (paths/env vars exist); `is_available`
-    actually probes the stack (may spawn a subprocess). Neither may import
-    torch or `sdm` in-process — the core stays stdlib-only.
+    actually probes the stack (may spawn a subprocess or make an HTTP call).
+    `probe` optionally returns (available, reason) for doctor output — when
+    absent, doctor falls back to is_available. Neither may import torch or
+    `sdm` in-process — the core stays stdlib-only.
     """
 
     id: str
@@ -126,6 +139,7 @@ class Provider:
     run: RunFn
     is_available: AvailabilityFn
     is_configured: AvailabilityFn | None = None
+    probe: Callable[[], tuple[bool, str]] | None = None
     description: str = ""
     tier: str = "core"
     meta: dict[str, Any] = field(default_factory=dict)

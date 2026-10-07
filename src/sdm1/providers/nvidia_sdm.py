@@ -186,6 +186,7 @@ register(
         run=run,
         is_available=is_available,
         is_configured=is_configured,
+        probe=probe_detail,
         description="In-context tabular foundation model (nvidia/Kumo-Tabular) via the sdm package in a [models] venv.",
         tier="core",
         meta={
@@ -193,6 +194,7 @@ register(
             "weights": "nvidia/Kumo-Tabular",
             "weights_license": "OpenMDW-1.1",
             "code_license": "Apache-2.0",
+            "config_hint": "set SDM1_MODELS_PYTHON (or SDM1_MODELS_VENV)",
         },
     )
 )

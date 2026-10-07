@@ -35,3 +35,4 @@ htmlcov/
 
 # Local env reference (gitignored; holds credentials/URLs)
 CLAUDE.local.md
+.archify/

@@ -104,3 +104,136 @@ def _as_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if f != f else f  # NaN guard
+
+
+# ── hosted predict-response parsing (tabpfn-hosted) ──────────────────────────
+
+# Quantile levels the hosted service returns, level index 4 == median.
+QUANTILE_LEVELS = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9")
+
+
+def parse_predict_response(
+    payload: Any,
+    task_type: str,
+    rows_query: list[dict] | None = None,
+    actual_column: str | None = None,
+) -> tuple[list[Prediction], bool, str | None]:
+    """Normalize a hosted /tabpfn/predict response into Predictions.
+
+    Tolerant of the shapes the service returns (see TECHNICAL-DOCUMENTATION §6):
+      - classification: `prediction` is a list of per-row probability lists
+        aligned with the top-level `classes` list.
+      - regression: `prediction` is a list of floats (median/mean/mode).
+      - forecast / anomaly: `prediction` is levels x rows (output_type
+        "quantiles") or a dict with mean/median/quantiles ("full"/"main").
+    Anomaly rows compare the observed value (from `actual_column` in
+    `rows_query`) against the band: label normal/anomaly, confidence =
+    distribution coverage.
+    """
+    if not isinstance(payload, dict):
+        return [], False, "predict response is not a JSON object"
+    pred = payload.get("prediction")
+    if pred is None:
+        return [], False, "predict response missing 'prediction' key"
+
+    if task_type == "classification":
+        meta = payload.get("metadata") or {}
+        classes = payload.get("classes") or meta.get("classes")
+        if not isinstance(pred, list) or not isinstance(classes, list) or not classes:
+            return [], False, "classification prediction requires a prediction list and classes"
+        predictions: list[Prediction] = []
+        for i, probs_list in enumerate(pred):
+            if not isinstance(probs_list, list):
+                continue
+            probs = {str(c): _as_float(p) for c, p in zip(classes, probs_list, strict=False)}
+            probs = {k: v for k, v in probs.items() if v is not None}
+            if not probs:
+                continue
+            label = max(probs, key=probs.__getitem__)
+            predictions.append(
+                Prediction(row_index=i, label=label, probabilities=probs, confidence=probs[label])
+            )
+        return predictions, True, None
+
+    if task_type == "regression":
+        values = _per_row_values(pred)
+        if values is None:
+            return [], False, "regression prediction is not a value list"
+        return (
+            [Prediction(row_index=i, label=v) for i, v in enumerate(values) if v is not None],
+            True,
+            None,
+        )
+
+    # forecast / anomaly: quantile bands, levels x rows
+    levels = _quantile_matrix(pred)
+    if levels is None:
+        return [], False, "forecast/anomaly prediction carries no quantile matrix"
+    n_rows = len(levels[0])
+    predictions = []
+    for i in range(n_rows):
+        band = {QUANTILE_LEVELS[j]: levels[j][i] for j in range(len(levels)) if levels[j][i] is not None}
+        median = band.get("0.5", band.get("0.9"))
+        if task_type == "forecast":
+            predictions.append(
+                Prediction(row_index=i, label=median, extras={"quantiles": band})
+            )
+            continue
+        actual = None
+        if rows_query and actual_column:
+            actual = _as_float((rows_query[i] or {}).get(actual_column)) if i < len(rows_query) else None
+        if actual is None:
+            predictions.append(Prediction(row_index=i, label=median, extras={"quantiles": band}))
+            continue
+        coverage, inside = _coverage(band, actual)
+        predictions.append(
+            Prediction(
+                row_index=i,
+                label="normal" if inside else "anomaly",
+                confidence=coverage,
+                extras={"quantiles": band, "actual": actual},
+            )
+        )
+    return predictions, True, None
+
+
+def _per_row_values(pred: Any) -> list[float | None] | None:
+    """Regression shapes: list of floats, or dict with median/mean lists."""
+    if isinstance(pred, list):
+        vals = [_as_float(v) for v in pred]
+        return vals if any(v is not None for v in vals) else None
+    if isinstance(pred, dict):
+        for key in ("median", "mean", "mode"):
+            if isinstance(pred.get(key), list):
+                return [_as_float(v) for v in pred[key]]
+    return None
+
+
+def _quantile_matrix(pred: Any) -> list[list[float | None]] | None:
+    """Quantiles as levels x rows; accepts quantiles output (levels x rows list)
+    and full/main output ({"quantiles": levels x rows})."""
+    if isinstance(pred, dict):
+        pred = pred.get("quantiles")
+    if not isinstance(pred, list) or not pred:
+        return None
+    matrix = [[_as_float(v) for v in row_vals] if isinstance(row_vals, list) else [] for row_vals in pred]
+    widths = {len(r) for r in matrix}
+    if len(widths) != 1 or not widths or 0 in widths:
+        return None
+    return matrix
+
+
+def _coverage(band: dict[str, float], actual: float) -> tuple[float, bool]:
+    """Distribution coverage of `actual`: the fraction of the predictive
+    distribution inside the tightest symmetric quantile pair containing it.
+
+    The service returns level strings "0.1".."0.9"; the symmetric pair
+    (0.5-d, 0.5+d) covers a fraction 2d of the distribution, so the widest
+    returned band (0.1-0.9) covers 0.8 and anything outside it scores 0.0.
+    """
+    for d in (0.4, 0.3, 0.2, 0.1):
+        lo = band.get(f"{0.5 - d:.1f}")
+        hi = band.get(f"{0.5 + d:.1f}")
+        if lo is not None and hi is not None and lo <= actual <= hi:
+            return round(2 * d, 2), True
+    return 0.0, False

@@ -12,15 +12,22 @@ the same number (sys1's Jev-vs-Decide lesson, carried over):
     a distribution-shape statistic — smoother and typically higher than a
     single-pass max-probability. A 0.75 here does not mean what a 0.75 from
     a single-pass fit/predict head means.
-  - Fit/predict backends (future ids): single-head max-probability, closer
-    to a literal "x% sure".
+  - Hosted fit/predict backends (tabpfn-hosted): the serving model's own
+    class probability for the winning class (single head from the caller's
+    view, ensemble inside the service). Closer to a literal "x% sure" than
+    the in-context mean — never share a floor with nvidia-sdm.
+  - Anomaly rows (any backend): confidence is distribution coverage — the
+    fraction of the predictive distribution consistent with the observed
+    value (1.0 = central band contains it, 0.0 = outside every band). The
+    floor therefore reads "at least this much of the distribution must
+    agree with the observation".
 
 Floors are therefore keyed per backend id, never shared. Precedence:
 request-level override > task.confidence_floor > _DEFAULT_FLOORS[model].
 
-Regression rows carry no confidence — they are never floor-gated (a missing
-gateable number is "cannot verify", not "escalate"), mirroring sys1's
-answer_confidence contract.
+Regression and forecast rows carry no confidence — they are never
+floor-gated (a missing gateable number is "cannot verify", not "escalate"),
+mirroring sys1's answer_confidence contract.
 """
 
 from __future__ import annotations
@@ -31,6 +38,7 @@ from .types import Prediction, TableTask, Verdict
 # number across backends expecting it to mean the same thing.
 _DEFAULT_FLOORS = {
     "nvidia-sdm": 0.6,  # in-context ensemble; start low, calibrate from telemetry
+    "tabpfn-hosted": 0.6,  # hosted single-head; start low, calibrate from telemetry
 }
 
 
